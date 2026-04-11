@@ -2,6 +2,13 @@ import asyncio
 import time
 import ssl
 import argparse
+import resource
+
+# Raise the open-file-descriptor limit so large numbers of simultaneous
+# QUIC connections (each needing its own UDP socket) don't hit the default
+# ulimit of 1024.
+_soft, _hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+resource.setrlimit(resource.RLIMIT_NOFILE, (min(65536, _hard), _hard))
 from aioquic.asyncio import connect
 from aioquic.quic.configuration import QuicConfiguration
 from aioquic.asyncio.protocol import QuicConnectionProtocol
