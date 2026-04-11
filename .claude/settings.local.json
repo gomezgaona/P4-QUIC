@@ -1,0 +1,29 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(apt list:*)",
+      "Bash(snap list:*)",
+      "Read(//usr/local/bin/**)",
+      "Read(//home/admin/.claude/**)",
+      "Read(//home/admin/**)",
+      "Bash(/home/admin/.vscode-server/extensions/anthropic.claude-code-2.1.101-linux-x64/resources/native-binary/claude --version)",
+      "Bash(find /home/admin/P4-QUIC -type f -exec ls -lh {} \\\\;)",
+      "Bash(awk '{print $9, $5}')",
+      "Bash(xargs ls:*)",
+      "Read(//root/**)",
+      "Read(//home/**)",
+      "Bash(ip addr:*)",
+      "Read(//etc/**)",
+      "Bash(pip3 list:*)",
+      "Bash(dpkg -l)",
+      "Bash(cat /home/admin/tofino-pod-init/*.sh)",
+      "Bash(cat /home/admin/tofino-pod-init/*.txt)",
+      "Bash(python3 -c \"import aioquic; print\\('aioquic ok'\\)\")",
+      "Bash(python3 -c \"import scapy; print\\('scapy ok'\\)\")",
+      "Bash(python3:*)",
+      "Bash(arp -a)",
+      "Bash(make:*)",
+      "Bash(ssh:*)"
+    ]
+  }
+}

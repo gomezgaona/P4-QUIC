@@ -1,0 +1,9 @@
+ucli
+pm port-add 1/- 100G RS
+pm port-add 2/- 100G RS
+pm port-enb 1/
+pm port-enb 2/
+
+exit
+exit
+
