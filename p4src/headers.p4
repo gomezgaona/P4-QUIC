@@ -99,7 +99,7 @@ struct quic_digest_t {
 /******  G L O B A L   I N G R E S S   M E T A D A T A  ***********************/
 
 struct my_ingress_metadata_t {
-    bit<16>  flow_id;        // CID-derived flow bucket → queue assignment
+    bit<17>  flow_id;        // CID-derived flow bucket → queue assignment
     bit<8>   dcid_len;       // Actual DCID byte length (from Long Header or default)
     // Pre-computed in ingress control for digest (avoids ternary+concat in deparser)
     bit<8>   first_byte;     // Reconstructed QUIC first byte

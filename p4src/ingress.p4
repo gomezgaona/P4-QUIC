@@ -34,12 +34,12 @@ control Ingress(
     // Same DCID always maps to the same bucket → per-connection counting.
     // Input is passed as a single bit<160> field — no struct literal, which
     // bf-p4c 9.6.0 does not accept for Hash.get().
-    Hash<bit<16>>(HashAlgorithm_t.CRC16) dcid_hash;
+    Hash<bit<17>>(HashAlgorithm_t.CRC32) dcid_hash;
 
-    // 1 024-bucket packet counter, indexed by the lower 10 bits of the hash.
+    // 131 072-bucket packet counter, indexed by the full 17-bit hash output.
     // Each bucket counts packets whose DCID hashes to that index.
-    Register<bit<32>, bit<10>>(1024) quic_pkt_count;
-    RegisterAction<bit<32>, bit<10>, bit<32>>(quic_pkt_count) count_quic = {
+    Register<bit<32>, bit<17>>(131072) quic_pkt_count;
+    RegisterAction<bit<32>, bit<17>, bit<32>>(quic_pkt_count) count_quic = {
         void apply(inout bit<32> val, out bit<32> rv) {
             val = val + 1;
             rv  = val;
@@ -64,9 +64,9 @@ control Ingress(
 
         // Count only QUIC packets — each hashes to a DCID-derived bucket.
         if (hdr.quic_long.isValid()) {
-            count_quic.execute(meta.flow_id[9:0]);
+            count_quic.execute(meta.flow_id);
         } else if (hdr.quic_short.isValid()) {
-            count_quic.execute(meta.flow_id[9:0]);
+            count_quic.execute(meta.flow_id);
         }
 
         forwarding.apply();

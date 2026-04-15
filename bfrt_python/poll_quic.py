@@ -6,13 +6,13 @@ import time
 reg = bfrt.basic.pipe.Ingress.quic_pkt_count
 
 # ── startup ───────────────────────────────────────────────────────────────────
-reg.clear()          # zero all 1024 counters so deltas start clean
-print("=" * 62)
+reg.clear()          # zero all 131072 counters so deltas start clean
+print("=" * 66)
 print("  QUIC per-connection packet counter")
-print("  1024 buckets  |  index = CRC16(DCID)[9:0]  |  32-bit count")
+print("  131072 buckets  |  index = CRC32(DCID)[16:0]  |  32-bit count")
 print("  Polling every 2 s.")
 print("  To stop: pkill -f bfrtcli  (from another terminal)")
-print("=" * 62)
+print("=" * 66)
 sys.stdout.flush()
 
 prev = {}
@@ -50,7 +50,7 @@ try:
             print("\n[{}]  {} active QUIC connection bucket(s):".format(ts, len(active)))
             for idx, cnt in sorted(active.items()):
                 delta = cnt - prev.get(idx, 0)
-                print("  bucket 0x{:03x}  total={:8d}  {:+7d} pkt/interval".format(
+                print("  bucket 0x{:05x}  total={:8d}  {:+7d} pkt/interval".format(
                     idx, cnt, delta))
         else:
             print("[{}]  no QUIC traffic".format(ts))
