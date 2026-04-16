@@ -27,7 +27,18 @@
       "Bash(git add:*)",
       "Bash(git commit -m ':*)",
       "Bash(git push:*)",
-      "Bash(openssl req *)"
+      "Bash(openssl req *)",
+      "Bash(go version *)",
+      "Bash(go build *)",
+      "Bash(grep -rn \"ConnectionIDGenerator\\\\|ConnectionIDLength\\\\|cidLen\\\\|cid_length\" /root/go/pkg/mod/github.com/quic-go/quic-go@v0.42.0/*.go)",
+      "Bash(grep -n \"func ListenAddr\\\\|func DialAddr\" /root/go/pkg/mod/github.com/quic-go/quic-go@v0.42.0/*.go)",
+      "Bash(/home/admin/P4-QUIC/quic_perf_go_server --help)",
+      "Bash(/home/admin/P4-QUIC/quic_perf_go_client --help)",
+      "Bash(sudo /home/admin/P4-QUIC/quic_perf_go_server --help)",
+      "Bash(ls -la /home/admin/P4-QUIC/quic_perf_go_*)",
+      "Bash(mount)",
+      "Bash(/usr/local/bin/quic_perf_go_client --help)",
+      "Bash(/usr/local/bin/quic_perf_go_client 192.168.0.2 -t 10 --help)"
     ]
   }
 }
