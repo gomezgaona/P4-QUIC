@@ -38,7 +38,18 @@
       "Bash(ls -la /home/admin/P4-QUIC/quic_perf_go_*)",
       "Bash(mount)",
       "Bash(/usr/local/bin/quic_perf_go_client --help)",
-      "Bash(/usr/local/bin/quic_perf_go_client 192.168.0.2 -t 10 --help)"
+      "Bash(/usr/local/bin/quic_perf_go_client 192.168.0.2 -t 10 --help)",
+      "Bash(git commit *)",
+      "Bash(find / -maxdepth 8 -name \"bfrt_grpc\" -type d)",
+      "Bash(find / -maxdepth 8 -name \"bfruntime_pb2.py\")",
+      "Bash(pip install *)",
+      "Bash(pip3 install *)",
+      "Bash(find / -maxdepth 10 -name \"bfruntime.proto\")",
+      "Bash(find / -maxdepth 10 -name \"bfruntime_pb2_grpc.py\")",
+      "Bash(find / -maxdepth 10 -name \"bfrt_grpc\" -type d)",
+      "Bash(find / -maxdepth 8 -name \"bfrtcli.py\")",
+      "Bash(find / -maxdepth 8 -name \"bfshell\")",
+      "Bash(env)"
     ]
   }
 }

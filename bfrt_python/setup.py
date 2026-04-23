@@ -24,6 +24,10 @@ forwarding.add_with_send_using_port(ingress_port=128, port=136)
 
 bfrt.complete_operations()
 
+# Register a no-op digest callback so the switch never logs
+# "no learn clients" errors when quic_monitor.py is not running.
+bfrt.basic.pipe.IngressDeparser.quic_digest.callback_register(lambda *a, **k: None)
+
 print("""
 ******************* PROGRAMMING RESULTS *****************
 """)

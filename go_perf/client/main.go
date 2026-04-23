@@ -24,21 +24,64 @@ var zeroChunk = make([]byte, writeChunk) // reused across all flows
 
 // cidGenerator implements quic.ConnectionIDGenerator and captures the first
 // generated ID so we can display the CID and P4 register bucket.
+//
+// When singleBucket is true, every CID after the first is searched until its
+// CRC32 & 0x1FFFF equals the first CID's bucket.  This ensures all CIDs for
+// the connection map to the same P4 register slot regardless of how many
+// NEW_CONNECTION_ID frames quic-go issues, so the monitor always shows exactly
+// one bucket per flow.  Expected search iterations ≈ 131 072 (17-bit target),
+// which completes in a few milliseconds and only runs a handful of times per
+// connection.
 type cidGenerator struct {
-	length int
-	ch     chan []byte
-	once   sync.Once
+	length       int
+	ch           chan []byte
+	once         sync.Once
+	singleBucket bool
+	mu           sync.Mutex
+	targetBucket uint32
+	hasTarget    bool
 }
 
-func newCIDGenerator(length int) *cidGenerator {
-	return &cidGenerator{length: length, ch: make(chan []byte, 1)}
+func newCIDGenerator(length int, singleBucket bool) *cidGenerator {
+	return &cidGenerator{length: length, ch: make(chan []byte, 1), singleBucket: singleBucket}
 }
 
 func (g *cidGenerator) GenerateConnectionID() (quic.ConnectionID, error) {
 	id := make([]byte, g.length)
-	if _, err := rand.Read(id); err != nil {
-		return quic.ConnectionID{}, err
+
+	if g.singleBucket {
+		g.mu.Lock()
+		hasTarget := g.hasTarget
+		target := g.targetBucket
+		g.mu.Unlock()
+
+		if !hasTarget {
+			// First CID: generate freely and record its bucket as the target.
+			if _, err := rand.Read(id); err != nil {
+				return quic.ConnectionID{}, err
+			}
+			g.mu.Lock()
+			g.targetBucket = crc32.ChecksumIEEE(id) & 0x1FFFF
+			g.hasTarget = true
+			g.mu.Unlock()
+		} else {
+			// Subsequent CIDs: find one that hashes to the same bucket so the
+			// P4 switch always sees a single active register slot per flow.
+			for {
+				if _, err := rand.Read(id); err != nil {
+					return quic.ConnectionID{}, err
+				}
+				if crc32.ChecksumIEEE(id)&0x1FFFF == target {
+					break
+				}
+			}
+		}
+	} else {
+		if _, err := rand.Read(id); err != nil {
+			return quic.ConnectionID{}, err
+		}
 	}
+
 	g.once.Do(func() { g.ch <- append([]byte(nil), id...) })
 	return quic.ConnectionIDFromBytes(id), nil
 }
@@ -62,10 +105,10 @@ type flowResult struct {
 }
 
 func runFlow(ctx context.Context, udpAddr *net.UDPAddr, tlsConf *tls.Config,
-	cidLen int, flowID int, dataSize int64, duration float64,
+	cidLen int, singleBucket bool, flowID int, dataSize int64, duration float64,
 	interval float64, results chan<- flowResult) {
 
-	gen := newCIDGenerator(cidLen)
+	gen := newCIDGenerator(cidLen, singleBucket)
 
 	udpConn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4zero, Port: 0})
 	if err != nil {
@@ -215,12 +258,13 @@ func main() {
 		os.Args = append([]string{os.Args[0]}, append(flags, pos...)...)
 	}
 
-	parallel := flag.Int("P", 1, "parallel flows")
-	n        := flag.Int64("n", 10_000_000, "bytes per flow (size-based mode)")
-	t        := flag.Float64("t", 0, "duration in seconds (overrides -n)")
-	i        := flag.Float64("i", 0, "reporting interval in seconds (0=off)")
-	cidLen   := flag.Int("cid-length", 20, "connection ID length in bytes")
-	port     := flag.Int("p", 443, "server port")
+	parallel     := flag.Int("P", 1, "parallel flows")
+	n            := flag.Int64("n", 10_000_000, "bytes per flow (size-based mode)")
+	t            := flag.Float64("t", 0, "duration in seconds (overrides -n)")
+	i            := flag.Float64("i", 1, "reporting interval in seconds (0=off)")
+	cidLen       := flag.Int("cid-length", 20, "connection ID length in bytes")
+	singleBucket := flag.Bool("single-cid", false, "force all CIDs to the same P4 bucket (eliminates CID-rotation noise in the monitor)")
+	port         := flag.Int("p", 443, "server port")
 	flag.Parse()
 
 	if flag.NArg() < 1 {
@@ -246,9 +290,7 @@ func main() {
 	}
 	fmt.Printf("Connecting to %s  —  %d flow(s), %s, CID=%dB\n",
 		addr, *parallel, mode, *cidLen)
-	if *i > 0 {
-		fmt.Printf("Interval reporting every %.1fs\n", *i)
-	}
+	fmt.Printf("Interval reporting every %.1fs\n", *i)
 	fmt.Println(strings.Repeat("-", 60))
 
 	dataSize := *n
@@ -259,7 +301,7 @@ func main() {
 	ctx := context.Background()
 	results := make(chan flowResult, *parallel)
 	for id := 0; id < *parallel; id++ {
-		go runFlow(ctx, udpAddr, tlsConf, *cidLen, id, dataSize, *t, *i, results)
+		go runFlow(ctx, udpAddr, tlsConf, *cidLen, *singleBucket, id, dataSize, *t, *i, results)
 	}
 
 	var totalDelivered int64

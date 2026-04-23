@@ -13,7 +13,7 @@ control Ingress(
     inout ingress_intrinsic_metadata_for_tm_t        ig_tm_md)
 {
     action send_using_port(PortId_t port){
-	    ig_tm_md.ucast_egress_port = port;   
+	    ig_tm_md.ucast_egress_port = port;
     }
 
     action drop() {
@@ -21,23 +21,20 @@ control Ingress(
     }
 
     table forwarding {
-        key = { 
-		    ig_intr_md.ingress_port : exact; 
+        key = {
+		    ig_intr_md.ingress_port : exact;
         }
         actions = {
-            send_using_port; 
+            send_using_port;
             drop;
         }
     }
 
-    // Hash the 160-bit DCID to a 16-bit value (CRC16).
-    // Same DCID always maps to the same bucket → per-connection counting.
-    // Input is passed as a single bit<160> field — no struct literal, which
-    // bf-p4c 9.6.0 does not accept for Hash.get().
+    // Hash the 160-bit DCID to a 17-bit bucket index (CRC32 lower 17 bits).
     Hash<bit<17>>(HashAlgorithm_t.CRC32) dcid_hash;
 
-    // 131 072-bucket packet counter, indexed by the full 17-bit hash output.
-    // Each bucket counts packets whose DCID hashes to that index.
+    // Packet counter — returns new value so apply block can detect
+    // the first packet of each connection (count == 1) to trigger a digest.
     Register<bit<32>, bit<17>>(131072) quic_pkt_count;
     RegisterAction<bit<32>, bit<17>, bit<32>>(quic_pkt_count) count_quic = {
         void apply(inout bit<32> val, out bit<32> rv) {
@@ -49,24 +46,40 @@ control Ingress(
     apply {
         meta.flow_id = 0;
 
-        // Step 1 — copy the active DCID into metadata.
+        // Step 1 — copy DCID, version, and first byte into metadata.
         if (hdr.quic_long.isValid()) {
-            meta.dcid = hdr.quic_long.dcid;
+            meta.dcid         = hdr.quic_long.dcid;
+            meta.quic_version = hdr.quic_long.version;
+            meta.first_byte   = hdr.quic_long.header_form ++
+                                hdr.quic_long.fixed_bit ++
+                                hdr.quic_long.long_packet_type ++
+                                hdr.quic_long.reserved ++
+                                hdr.quic_long.packet_number_length;
         } else if (hdr.quic_short.isValid()) {
-            meta.dcid = hdr.quic_short.dcid;
+            meta.dcid       = hdr.quic_short.dcid;
+            meta.first_byte = hdr.quic_short.header_form ++
+                              hdr.quic_short.fixed_bit ++
+                              hdr.quic_short.spin_bit ++
+                              hdr.quic_short.reserved ++
+                              hdr.quic_short.key_phase ++
+                              hdr.quic_short.packet_number_length;
         }
 
-        // Step 2 — single Hash.get() call.
-        // bf-p4c 9.6.0 treats Hash as a "dynamic hash" and rejects programs
-        // with more than one get() call per instance.  For non-QUIC packets
-        // meta.dcid stays 0 and the result is unused (counter not executed).
+        // Step 2 — single Hash.get() call (bf-p4c 9.6.0 restriction).
         meta.flow_id = dcid_hash.get(meta.dcid);
 
-        // Count only QUIC packets — each hashes to a DCID-derived bucket.
-        if (hdr.quic_long.isValid()) {
-            count_quic.execute(meta.flow_id);
-        } else if (hdr.quic_short.isValid()) {
-            count_quic.execute(meta.flow_id);
+        // Count only server→client QUIC packets (src_port == QUIC_PORT).
+        // The DCID in these packets is the client's own CID — the same one
+        // the client prints at connect time — enabling direct correlation.
+        // On the first packet per connection (count 0→1) trigger a digest
+        // so the control plane learns the DCID without per-packet overhead.
+        if (hdr.udp.src_port == QUIC_PORT) {
+            if (hdr.quic_long.isValid() || hdr.quic_short.isValid()) {
+                bit<32> cnt = count_quic.execute(meta.flow_id);
+                if (cnt == 1) {
+                    ig_dprsr_md.digest_type = 1;
+                }
+            }
         }
 
         forwarding.apply();
