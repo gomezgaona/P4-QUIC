@@ -26,6 +26,10 @@ bfrt.complete_operations()
 
 # Register a no-op digest callback so the switch never logs
 # "no learn clients" errors when quic_monitor.py is not running.
+try:
+    bfrt.basic.pipe.IngressDeparser.quic_digest.callback_deregister()
+except Exception:
+    pass
 bfrt.basic.pipe.IngressDeparser.quic_digest.callback_register(lambda *a, **k: None)
 
 print("""

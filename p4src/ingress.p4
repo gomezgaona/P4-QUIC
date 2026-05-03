@@ -43,6 +43,12 @@ control Ingress(
         }
     };
 
+    // Byte counter for throughput measurement (both directions).
+    // 1024 entries (10-bit) keeps SRAM within stage budget alongside the
+    // 131072-entry Register above.  Index = lower 10 bits of flow_id;
+    // collision probability is negligible for O(10) concurrent flows.
+    Counter<bit<64>, bit<10>>(1024, CounterType_t.PACKETS_AND_BYTES) quic_flow_bytes;
+
     apply {
         meta.flow_id = 0;
 
@@ -68,17 +74,17 @@ control Ingress(
         // Step 2 — single Hash.get() call (bf-p4c 9.6.0 restriction).
         meta.flow_id = dcid_hash.get(meta.dcid);
 
-        // Count only server→client QUIC packets (src_port == QUIC_PORT).
-        // The DCID in these packets is the client's own CID — the same one
-        // the client prints at connect time — enabling direct correlation.
-        // On the first packet per connection (count 0→1) trigger a digest
-        // so the control plane learns the DCID without per-packet overhead.
-        if (hdr.udp.src_port == QUIC_PORT) {
-            if (hdr.quic_long.isValid() || hdr.quic_short.isValid()) {
-                bit<32> cnt = count_quic.execute(meta.flow_id);
-                if (cnt == 1) {
-                    ig_dprsr_md.digest_type = 1;
-                }
+        if (hdr.quic_long.isValid() || hdr.quic_short.isValid()) {
+            // Count bytes for both directions so the monitor can show Mbps
+            // per bucket. Each direction uses its own DCID → its own bucket.
+            quic_flow_bytes.count((bit<10>)meta.flow_id);
+
+            // Digest trigger: fire on the first packet of each direction so
+            // the control plane learns both the client CID (from server→client)
+            // and the server CID (from client→server) for per-flow display.
+            bit<32> cnt = count_quic.execute(meta.flow_id);
+            if (cnt == 1) {
+                ig_dprsr_md.digest_type = 1;
             }
         }
 

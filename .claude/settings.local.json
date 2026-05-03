@@ -49,7 +49,13 @@
       "Bash(find / -maxdepth 10 -name \"bfrt_grpc\" -type d)",
       "Bash(find / -maxdepth 8 -name \"bfrtcli.py\")",
       "Bash(find / -maxdepth 8 -name \"bfshell\")",
-      "Bash(env)"
+      "Bash(env)",
+      "WebFetch(domain:wiki.wireshark.org)",
+      "WebSearch",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:www.netresec.com)",
+      "WebFetch(domain:www.qacafe.com)",
+      "WebFetch(domain:zenodo.org)"
     ]
   }
 }
