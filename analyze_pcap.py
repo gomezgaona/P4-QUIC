@@ -46,9 +46,14 @@ def tshark_extract(pcap):
 
 
 def p4_buckets(dcid_hex):
-    """Return (17-bit register bucket, 10-bit counter index) as P4 would compute."""
+    """Return (17-bit register bucket, 10-bit counter index) as P4 would compute.
+
+    P4 pads masked_dcid to 20 bytes with trailing zeros before CRC32, equivalent
+    to hashing the actual CID bytes zero-padded to 20 bytes.
+    """
     try:
-        b17 = binascii.crc32(bytes.fromhex(dcid_hex)) & 0x1FFFF
+        padded = bytes.fromhex(dcid_hex).ljust(20, b'\x00')
+        b17 = binascii.crc32(padded) & 0x1FFFF
         return b17, b17 & 0x3FF
     except Exception:
         return None, None

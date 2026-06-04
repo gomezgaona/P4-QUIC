@@ -54,8 +54,10 @@ def on_quic_digest(dev_id, pipe_id, direction, parser_id, session, msg,
             dcid_len = d["dcid_len"]
             if not isinstance(dcid_raw, int) or dcid_len == 0:
                 continue
-            dcid_hex = "{:040x}".format(dcid_raw)[:dcid_len * 2]
-            bucket   = _crc32(bytes.fromhex(dcid_hex)) & 0x1FFFF
+            dcid_hex  = "{:040x}".format(dcid_raw)[:dcid_len * 2]
+            # P4 pads masked_dcid to 20 bytes with trailing zeros before hashing.
+            dcid_padded = bytes.fromhex(dcid_hex).ljust(20, b'\x00')
+            bucket   = _crc32(dcid_padded) & 0x1FFFF
             ctr_idx  = bucket & 0x3FF
             _bmap[bucket]  = dcid_hex
             _cmap[ctr_idx] = dcid_hex
