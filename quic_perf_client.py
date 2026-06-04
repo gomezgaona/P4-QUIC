@@ -13,13 +13,14 @@ STATS_MAGIC = b"STATS"
 
 
 def cid_to_bucket(cid_hex: str) -> int:
-    """Approximate the P4 register index for a given CID.
+    """Compute the P4 register bucket index for a CID of any length.
 
-    The dataplane computes Hash<bit<17>>(CRC32) over the 20-byte DCID and uses
-    the result as the register index.  Python's binascii.crc32 uses the same
-    ISO-HDLC polynomial, so the lower 17 bits match in practice.
+    The P4 switch reads 20 bytes speculatively and masks to the actual CID
+    length before hashing (feature/cid-length-learning).  This is equivalent
+    to padding the CID with trailing zeros to 20 bytes, then CRC32.
     """
-    return binascii.crc32(bytes.fromhex(cid_hex)) & 0x1FFFF
+    padded = bytes.fromhex(cid_hex).ljust(20, b'\x00')
+    return binascii.crc32(padded) & 0x1FFFF
 
 
 class PerfClientProtocol(QuicConnectionProtocol):

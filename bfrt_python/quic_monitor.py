@@ -18,6 +18,7 @@ ctr    = p4.Ingress.quic_flow_bytes
 # ── shared state ──────────────────────────────────────────────────────────────
 bucket_dcid = {}
 ctr_dcid    = {}
+ctr_len     = {}   # 10-bit counter idx → DCID length in bytes (from digest)
 bucket_dir  = {}   # 10-bit counter idx → 'dn' or 'up'
 bucket_ckey = {}   # 10-bit counter idx → "client_ip:client_port"
 prev_pkts   = {}
@@ -44,7 +45,7 @@ def _sum_raw(raw):
     return int(raw)
 
 def on_quic_digest(dev_id, pipe_id, direction, parser_id, session, msg,
-                   _bmap=bucket_dcid, _cmap=ctr_dcid,
+                   _bmap=bucket_dcid, _cmap=ctr_dcid, _clen=ctr_len,
                    _bdir=bucket_dir,  _bckey=bucket_ckey,
                    _crc32=binascii.crc32, _fmt=_fmt_ip):
     try:
@@ -58,6 +59,7 @@ def on_quic_digest(dev_id, pipe_id, direction, parser_id, session, msg,
             ctr_idx  = bucket & 0x3FF
             _bmap[bucket]  = dcid_hex
             _cmap[ctr_idx] = dcid_hex
+            _clen[ctr_idx] = dcid_len
             try:
                 ip_src  = d["ip_src"]
                 ip_dst  = d["ip_dst"]
@@ -174,6 +176,18 @@ try:
             if now - last_active.get(idx, -1e9) < INACTIVITY_TIMEOUT:
                 visible[idx] = v
 
+        # CID-length map built from ALL known buckets (not just visible ones) so
+        # that idle directions (e.g. ↓ pkt/s = 0) still show their learned length.
+        ckey_len = {}
+        for idx in ctr_dcid:
+            ck = bucket_ckey.get(idx, '')
+            dr = bucket_dir.get(idx, 'dn')
+            ln = ctr_len.get(idx, '?')
+            if ck:
+                if ck not in ckey_len:
+                    ckey_len[ck] = {}
+                ckey_len[ck][dr] = ln
+
         # Group by connection (client endpoint) using 4-tuple learned from digest.
         # conn_stats[client_key] = [dn_pkt/s, dn_Mbps, up_pkt/s, up_Mbps]
         conn_stats = {}
@@ -198,18 +212,20 @@ try:
         ts = time.strftime("%H:%M:%S")
         if conn_stats:
             print("\n[{}]  {} QUIC connection(s):".format(ts, len(conn_stats)))
-            print("  {:<22}  {:>8}  {:>8}  {:>8}  {:>8}  {:>8}".format(
-                "Client endpoint", "↓ pkt/s", "↓ Mbps", "↑ pkt/s", "↑ Mbps", "Total"))
-            print("  " + "-" * 72)
+            print("  {:<22}  {:>8}  {:>8}  {:>8}  {:>8}  {:>8}  {:>7}".format(
+                "Client endpoint", "↓ pkt/s", "↓ Mbps", "↑ pkt/s", "↑ Mbps", "Total", "CIDlen"))
+            print("  " + "-" * 82)
             tot_dp = 0.0; tot_dm = 0.0; tot_up = 0.0; tot_um = 0.0
             for ckey in sorted(conn_stats):
                 dn_pkt, dn_mbps, up_pkt, up_mbps = conn_stats[ckey]
-                print("  {:<22}  {:>8.0f}  {:>8.2f}  {:>8.0f}  {:>8.2f}  {:>8.2f}".format(
+                lens  = ckey_len.get(ckey, {})
+                cidlen = "{}/{}".format(lens.get('up', '?'), lens.get('dn', '?'))
+                print("  {:<22}  {:>8.0f}  {:>8.2f}  {:>8.0f}  {:>8.2f}  {:>8.2f}  {:>7}".format(
                     ckey if ckey else "(unidentified)",
-                    dn_pkt, dn_mbps, up_pkt, up_mbps, dn_mbps + up_mbps))
+                    dn_pkt, dn_mbps, up_pkt, up_mbps, dn_mbps + up_mbps, cidlen))
                 tot_dp += dn_pkt; tot_dm += dn_mbps
                 tot_up += up_pkt; tot_um += up_mbps
-            print("  " + "-" * 72)
+            print("  " + "-" * 82)
             print("  {:<22}  {:>8.0f}  {:>8.2f}  {:>8.0f}  {:>8.2f}  {:>8.2f}  <-- total".format(
                 "", tot_dp, tot_dm, tot_up, tot_um, tot_dm + tot_um))
             if pending_pkt > 0 or pending_mbps > 0:

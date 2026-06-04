@@ -22,6 +22,16 @@ const writeChunk = 256 * 1024 // 256 KB per Write call
 
 var zeroChunk = make([]byte, writeChunk) // reused across all flows
 
+// p4Bucket returns the 17-bit P4 flow_id for a CID of any length.
+// The P4 switch reads 20 bytes speculatively and masks to the actual CID
+// length (feature/cid-length-learning), equivalent to padding with trailing
+// zeros before hashing.
+func p4Bucket(id []byte) uint32 {
+	padded := make([]byte, 20)
+	copy(padded, id)
+	return crc32.ChecksumIEEE(padded) & 0x1FFFF
+}
+
 // cidGenerator implements quic.ConnectionIDGenerator and captures the first
 // generated ID so we can display the CID and P4 register bucket.
 //
@@ -61,7 +71,7 @@ func (g *cidGenerator) GenerateConnectionID() (quic.ConnectionID, error) {
 				return quic.ConnectionID{}, err
 			}
 			g.mu.Lock()
-			g.targetBucket = crc32.ChecksumIEEE(id) & 0x1FFFF
+			g.targetBucket = p4Bucket(id)
 			g.hasTarget = true
 			g.mu.Unlock()
 		} else {
@@ -71,7 +81,7 @@ func (g *cidGenerator) GenerateConnectionID() (quic.ConnectionID, error) {
 				if _, err := rand.Read(id); err != nil {
 					return quic.ConnectionID{}, err
 				}
-				if crc32.ChecksumIEEE(id)&0x1FFFF == target {
+				if p4Bucket(id) == target {
 					break
 				}
 			}
@@ -137,7 +147,7 @@ func runFlow(ctx context.Context, udpAddr *net.UDPAddr, tlsConf *tls.Config,
 
 	// Display local connection ID (= DCID in server→client packets).
 	if cid := gen.firstCID(); cid != nil {
-		bucket := crc32.ChecksumIEEE(cid) & 0x1FFFF
+		bucket := p4Bucket(cid)
 		fmt.Printf("  Flow %d: connected  CID=%x  bucket=0x%05x\n",
 			flowID, cid, bucket)
 	} else {
