@@ -14,6 +14,7 @@ from ipaddress import ip_address
 p4 = bfrt.basic.pipe
 
 forwarding = p4.Ingress.forwarding
+cfg_tbl    = p4.Ingress.cfg_tbl
 
 forwarding.clear()
 
@@ -23,6 +24,21 @@ forwarding.add_with_send_using_port(ingress_port=136, port=128)
 forwarding.add_with_send_using_port(ingress_port=128, port=136)
 
 bfrt.complete_operations()
+
+# ── CID-length-learning: set force_len = 0 (length-aware arm, default) ────
+# The cfg_tbl default action is the A/B runtime toggle.  Changing it at any
+# time takes effect on the next packet without recompiling the P4 program.
+#
+# Length-aware arm (default, learns DCID length from long headers):
+#   p4.Ingress.cfg_tbl.set_default_action_set_force_len(len=0)
+#
+# Naive 20-byte baseline arm (reproduces pre-feature behaviour):
+#   p4.Ingress.cfg_tbl.set_default_action_set_force_len(len=20)
+#
+cfg_tbl.set_default_action_set_force_len(len=0)
+
+# mask_tbl is populated via const entries in the P4 source; no control-plane
+# setup required.
 
 # Register a no-op digest callback so the switch never logs
 # "no learn clients" errors when quic_monitor.py is not running.
@@ -37,3 +53,5 @@ print("""
 """)
 print("Table forwarding:")
 forwarding.dump(table=True)
+print("\ncfg_tbl default action (force_len=0 → length-aware arm):")
+cfg_tbl.dump(table=True)

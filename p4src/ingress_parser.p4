@@ -12,11 +12,18 @@ parser IngressParser(packet_in        pkt,
     state start {
         pkt.extract(ig_intr_md);
         pkt.advance(PORT_METADATA_SIZE);
-        meta.dcid_len     = 0;
-        meta.flow_id      = 0;
-        meta.first_byte   = 0;
-        meta.quic_version = 0;
-        meta.dcid         = 0;
+        meta.dcid_len        = 0;
+        meta.flow_id         = 0;
+        meta.first_byte      = 0;
+        meta.quic_version    = 0;
+        meta.dcid            = 0;
+        meta.parsed_dcid_len = 0;
+        meta.eff_len         = 0;
+        meta.force_len       = 0;
+        meta.flow_key        = 0;
+        meta.flow_tuple      = 0;
+        meta.dcid_mask       = 0;
+        meta.masked_dcid     = 0;
         transition parse_ethernet;
     }
 

@@ -99,12 +99,20 @@ struct quic_digest_t {
 /******  G L O B A L   I N G R E S S   M E T A D A T A  ***********************/
 
 struct my_ingress_metadata_t {
-    bit<17>  flow_id;        // CID-derived flow bucket → queue assignment
-    bit<8>   dcid_len;       // Actual DCID byte length (from Long Header or default)
-    // Pre-computed in ingress control for digest (avoids ternary+concat in deparser)
-    bit<8>   first_byte;     // Reconstructed QUIC first byte
-    bit<32>  quic_version;   // QUIC version (Long Header only; 0 for Short)
-    bit<160> dcid;           // Active DCID (from whichever header was valid)
+    bit<17>  flow_id;            // CID-derived flow bucket → counter/register index
+    bit<8>   dcid_len;           // DCID byte length used in digest (parser-set)
+    bit<8>   first_byte;         // Reconstructed QUIC first byte (for digest)
+    bit<32>  quic_version;       // QUIC version (Long Header only; 0 for Short)
+    bit<160> dcid;               // Raw speculative 20-byte DCID from parser
+
+    // ── CID-length-learning fields ──────────────────────────────────────────
+    bit<8>   parsed_dcid_len;    // on-wire DCID length from Long Header
+    bit<8>   eff_len;            // effective length after learn/recall + force override
+    bit<8>   force_len;          // A/B toggle: 0=length-aware, N=force N bytes (e.g. 20)
+    bit<16>  flow_key;           // 4-tuple CRC16 index into dcid_len_reg
+    bit<96>  flow_tuple;         // concat(src_ip,dst_ip,src_port,dst_port) for flow_hash
+    bit<160> dcid_mask;          // top eff_len bytes = 0xff, rest = 0x00
+    bit<160> masked_dcid;        // dcid & dcid_mask — actual hash input
 }
 
 /***********************  E G R E S S  H E A D E R S  *************************/
