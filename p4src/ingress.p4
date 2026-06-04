@@ -74,9 +74,9 @@ control Ingress(
     // ── A/B runtime toggle ─────────────────────────────────────────────────
     // Default action sets force_len = 0 (length-aware arm).
     // Control plane sets force_len = 20 to reproduce the naive 20-byte baseline:
-    //   p4.Ingress.cfg_tbl.set_default_action_set_force_len(len=20)
+    //   p4.Ingress.cfg_tbl.set_default_with_set_force_len(len=20)
     // To return to length-aware mode:
-    //   p4.Ingress.cfg_tbl.set_default_action_set_force_len(len=0)
+    //   p4.Ingress.cfg_tbl.set_default_with_set_force_len(len=0)
     action set_force_len(bit<8> len) {
         meta.force_len = len;
     }

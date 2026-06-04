@@ -30,12 +30,12 @@ bfrt.complete_operations()
 # time takes effect on the next packet without recompiling the P4 program.
 #
 # Length-aware arm (default, learns DCID length from long headers):
-#   p4.Ingress.cfg_tbl.set_default_action_set_force_len(len=0)
+#   p4.Ingress.cfg_tbl.set_default_with_set_force_len(len=0)
 #
 # Naive 20-byte baseline arm (reproduces pre-feature behaviour):
-#   p4.Ingress.cfg_tbl.set_default_action_set_force_len(len=20)
+#   p4.Ingress.cfg_tbl.set_default_with_set_force_len(len=20)
 #
-cfg_tbl.set_default_action_set_force_len(len=0)
+cfg_tbl.set_default_with_set_force_len(len=0)
 
 # mask_tbl is populated via const entries in the P4 source; no control-plane
 # setup required.
