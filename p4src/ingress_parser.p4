@@ -22,7 +22,6 @@ parser IngressParser(packet_in        pkt,
         meta.force_len       = 0;
         meta.flow_key        = 0;
         meta.flow_tuple      = 0;
-        meta.dcid_mask       = 0;
         meta.masked_dcid     = 0;
         transition parse_ethernet;
     }

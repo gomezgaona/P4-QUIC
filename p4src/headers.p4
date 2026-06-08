@@ -111,8 +111,10 @@ struct my_ingress_metadata_t {
     bit<8>   force_len;          // A/B toggle: 0=length-aware, N=force N bytes (e.g. 20)
     bit<16>  flow_key;           // 4-tuple CRC16 index into dcid_len_reg
     bit<96>  flow_tuple;         // concat(src_ip,dst_ip,src_port,dst_port) for flow_hash
-    bit<160> dcid_mask;          // top eff_len bytes = 0xff, rest = 0x00
-    bit<160> masked_dcid;        // dcid & dcid_mask — actual hash input
+    bit<160> masked_dcid;        // dcid with trailing bytes zeroed — hash input.
+                                 // Built inside set_mask via five 32-bit slice
+                                 // ANDs; a single 160-bit AND is mis-compiled by
+                                 // bf-p4c 9.6.0 across PHV containers.
 }
 
 /***********************  E G R E S S  H E A D E R S  *************************/

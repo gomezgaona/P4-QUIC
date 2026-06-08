@@ -93,8 +93,19 @@ control Ingress(
     // so only the real CID bytes contribute to the flow bucket hash.
     // If recall_len returns 0 (handshake not observed), mask = 0 and all pre-handshake
     // short-header packets collapse to one bucket — expected degenerate case.
-    action set_mask(bit<160> mask) {
-        meta.dcid_mask = mask;
+    // The mask is applied INSIDE the action (per 32-bit slice) rather than in a
+    // separate statement. This (a) avoids the 160-bit AND that bf-p4c 9.6.0
+    // mis-compiles across PHV containers, and (b) does the masking during the
+    // mask_tbl lookup stage instead of a dedicated stage — the pipeline is at
+    // the 12-stage limit, so a separate masking stage overflows it.
+    // Params m0..m4 map to dcid bytes [0-3][4-7][8-11][12-15][16-19] (MSB→LSB);
+    // for eff_len = L the first L bytes are 0xff.
+    action set_mask(bit<32> m0, bit<32> m1, bit<32> m2, bit<32> m3, bit<32> m4) {
+        meta.masked_dcid[159:128] = meta.dcid[159:128] & m0;
+        meta.masked_dcid[127:96]  = meta.dcid[127:96]  & m1;
+        meta.masked_dcid[95:64]   = meta.dcid[95:64]   & m2;
+        meta.masked_dcid[63:32]   = meta.dcid[63:32]   & m3;
+        meta.masked_dcid[31:0]    = meta.dcid[31:0]    & m4;
     }
 
     table mask_tbl {
@@ -102,29 +113,29 @@ control Ingress(
         actions = { set_mask; }
         size    = 32;
         const entries = {
-            8w0  : set_mask(160w0x0000000000000000000000000000000000000000);
-            8w1  : set_mask(160w0xff00000000000000000000000000000000000000);
-            8w2  : set_mask(160w0xffff000000000000000000000000000000000000);
-            8w3  : set_mask(160w0xffffff0000000000000000000000000000000000);
-            8w4  : set_mask(160w0xffffffff00000000000000000000000000000000);
-            8w5  : set_mask(160w0xffffffffff000000000000000000000000000000);
-            8w6  : set_mask(160w0xffffffffffff0000000000000000000000000000);
-            8w7  : set_mask(160w0xffffffffffffff00000000000000000000000000);
-            8w8  : set_mask(160w0xffffffffffffffff000000000000000000000000);
-            8w9  : set_mask(160w0xffffffffffffffffff0000000000000000000000);
-            8w10 : set_mask(160w0xffffffffffffffffffff00000000000000000000);
-            8w11 : set_mask(160w0xffffffffffffffffffffff000000000000000000);
-            8w12 : set_mask(160w0xffffffffffffffffffffffff0000000000000000);
-            8w13 : set_mask(160w0xffffffffffffffffffffffffff00000000000000);
-            8w14 : set_mask(160w0xffffffffffffffffffffffffffff000000000000);
-            8w15 : set_mask(160w0xffffffffffffffffffffffffffffff0000000000);
-            8w16 : set_mask(160w0xffffffffffffffffffffffffffffffff00000000);
-            8w17 : set_mask(160w0xffffffffffffffffffffffffffffffffff000000);
-            8w18 : set_mask(160w0xffffffffffffffffffffffffffffffffffff0000);
-            8w19 : set_mask(160w0xffffffffffffffffffffffffffffffffffffff00);
-            8w20 : set_mask(160w0xffffffffffffffffffffffffffffffffffffffff);
+            8w0  : set_mask(32w0x00000000, 32w0x00000000, 32w0x00000000, 32w0x00000000, 32w0x00000000);
+            8w1  : set_mask(32w0xff000000, 32w0x00000000, 32w0x00000000, 32w0x00000000, 32w0x00000000);
+            8w2  : set_mask(32w0xffff0000, 32w0x00000000, 32w0x00000000, 32w0x00000000, 32w0x00000000);
+            8w3  : set_mask(32w0xffffff00, 32w0x00000000, 32w0x00000000, 32w0x00000000, 32w0x00000000);
+            8w4  : set_mask(32w0xffffffff, 32w0x00000000, 32w0x00000000, 32w0x00000000, 32w0x00000000);
+            8w5  : set_mask(32w0xffffffff, 32w0xff000000, 32w0x00000000, 32w0x00000000, 32w0x00000000);
+            8w6  : set_mask(32w0xffffffff, 32w0xffff0000, 32w0x00000000, 32w0x00000000, 32w0x00000000);
+            8w7  : set_mask(32w0xffffffff, 32w0xffffff00, 32w0x00000000, 32w0x00000000, 32w0x00000000);
+            8w8  : set_mask(32w0xffffffff, 32w0xffffffff, 32w0x00000000, 32w0x00000000, 32w0x00000000);
+            8w9  : set_mask(32w0xffffffff, 32w0xffffffff, 32w0xff000000, 32w0x00000000, 32w0x00000000);
+            8w10 : set_mask(32w0xffffffff, 32w0xffffffff, 32w0xffff0000, 32w0x00000000, 32w0x00000000);
+            8w11 : set_mask(32w0xffffffff, 32w0xffffffff, 32w0xffffff00, 32w0x00000000, 32w0x00000000);
+            8w12 : set_mask(32w0xffffffff, 32w0xffffffff, 32w0xffffffff, 32w0x00000000, 32w0x00000000);
+            8w13 : set_mask(32w0xffffffff, 32w0xffffffff, 32w0xffffffff, 32w0xff000000, 32w0x00000000);
+            8w14 : set_mask(32w0xffffffff, 32w0xffffffff, 32w0xffffffff, 32w0xffff0000, 32w0x00000000);
+            8w15 : set_mask(32w0xffffffff, 32w0xffffffff, 32w0xffffffff, 32w0xffffff00, 32w0x00000000);
+            8w16 : set_mask(32w0xffffffff, 32w0xffffffff, 32w0xffffffff, 32w0xffffffff, 32w0x00000000);
+            8w17 : set_mask(32w0xffffffff, 32w0xffffffff, 32w0xffffffff, 32w0xffffffff, 32w0xff000000);
+            8w18 : set_mask(32w0xffffffff, 32w0xffffffff, 32w0xffffffff, 32w0xffffffff, 32w0xffff0000);
+            8w19 : set_mask(32w0xffffffff, 32w0xffffffff, 32w0xffffffff, 32w0xffffffff, 32w0xffffff00);
+            8w20 : set_mask(32w0xffffffff, 32w0xffffffff, 32w0xffffffff, 32w0xffffffff, 32w0xffffffff);
         }
-        default_action = set_mask(0);
+        default_action = set_mask(32w0, 32w0, 32w0, 32w0, 32w0);
     }
 
     apply {
@@ -159,13 +170,29 @@ control Ingress(
                           hdr.udp.src_port  ++ hdr.udp.dst_port;
         meta.flow_key = flow_hash.get(meta.flow_tuple);
 
-        // Step 4 — learn (long) or recall (short) the DCID byte length.
-        // Mutually exclusive RegisterActions on the same register: legal in TNA.
-        // Short header before handshake: recall_len returns 0 → mask = 0 (degenerate).
-        if (hdr.quic_long.isValid()) {
-            meta.eff_len = learn_len.execute(meta.flow_key);
+        // Step 4 — determine the effective DCID byte length.
+        //
+        // Long headers carry dcid_len on the wire, so the length is always known
+        // for the packet in hand — default eff_len to that parsed value.
+        //
+        // Learning (seeding dcid_len_reg for later Short-header recall) must use
+        // ONLY the *negotiated* connection ID. That appears in Handshake packets
+        // (long_packet_type == 2): the DCID of a Handshake packet is the CID the
+        // peer actually issued, the same one Short headers will use. The client's
+        // Initial (type 0) instead carries a RANDOM-length DCID it invents before
+        // it knows the peer's CID — learning from it poisons the register with the
+        // wrong length and makes the mask keep ciphertext tail bytes (the bucket
+        // overflow we were seeing). The long_packet_type bits are NOT header-
+        // protected (RFC 9001 §5.4.2 masks only the 4 LSBs of byte 0), so the
+        // switch can read them reliably in cleartext.
+        //
+        // Short headers have no length on the wire → recall the learned value.
+        // At most one RegisterAction on dcid_len_reg executes per packet (TNA-legal).
+        meta.eff_len = meta.parsed_dcid_len;            // wire length (long); 0 for short
+        if (hdr.quic_long.isValid() && hdr.quic_long.long_packet_type == 2) {
+            meta.eff_len = learn_len.execute(meta.flow_key);   // seed register from Handshake
         } else if (hdr.quic_short.isValid()) {
-            meta.eff_len = recall_len.execute(meta.flow_key);
+            meta.eff_len = recall_len.execute(meta.flow_key);  // recall negotiated length
         }
 
         // Step 5 — A/B override: force_len != 0 bypasses learned length.
@@ -173,13 +200,13 @@ control Ingress(
             meta.eff_len = meta.force_len;
         }
 
-        // Step 6 — translate eff_len to 160-bit mask.
+        // Step 6 — mask the trailing speculative bytes. set_mask ANDs each
+        // 32-bit slice of dcid with the per-length mask and writes masked_dcid
+        // directly, so the masking happens in this table's stage (no separate
+        // stage) and avoids the mis-compiled 160-bit AND.
         mask_tbl.apply();
 
-        // Step 7 — zero the trailing speculative bytes.
-        meta.masked_dcid = meta.dcid & meta.dcid_mask;
-
-        // Step 8 — single unconditional Hash.get() for the bucket index.
+        // Step 7 — single unconditional Hash.get() for the bucket index.
         meta.flow_id = dcid_hash.get(meta.masked_dcid);
 
         // Step 9 — existing counter, packet register, and digest logic (unchanged).
