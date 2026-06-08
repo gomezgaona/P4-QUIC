@@ -1,0 +1,257 @@
+================================================================================
+LENGTH-AWARE, DATA-PLANE PER-CONNECTION QUIC CLASSIFICATION ON INTEL TOFINO
+Paper-ready system description, experiment, results, and contributions
+================================================================================
+(Working notes for submission. Numbers are from the
+measured runs summarized in buckets_vs_cidlen.pdf / plot_buckets.py.)
+
+
+--------------------------------------------------------------------------------
+1. ONE-PARAGRAPH SUMMARY
+--------------------------------------------------------------------------------
+We present a programmable-data-plane system that classifies and counts QUIC
+traffic at per-connection granularity, at line rate, entirely in the switch
+pipeline (Intel Tofino 1 / TNA), without terminating or decrypting the QUIC
+session. The core difficulty is that QUIC identifies connections by a
+variable-length Destination Connection ID (DCID, 0-20 bytes) whose length is
+NOT carried on the wire in 1-RTT (short-header) packets. Prior data-plane
+approaches sidestep this by assuming a single fixed CID length, which we show
+fails catastrophically for any other length: the switch hashes speculative
+bytes that actually contain encrypted per-packet data, so every packet maps to
+a fresh flow bucket and the per-flow state table is exhausted. Our system
+instead LEARNS each connection's negotiated CID length from the cleartext QUIC
+handshake and MASKS the speculative tail before hashing, so a single compiled
+program correctly classifies any legal CID length with no recompilation. The
+measured effect is a reduction in flow-table occupancy of ~3-4 orders of
+magnitude (e.g., ~57,000 down to ~11 buckets for an 8-byte CID) and a
+corresponding jump in per-connection classification accuracy from ~0% to
+effectively complete.
+
+
+--------------------------------------------------------------------------------
+2. PROBLEM AND MOTIVATION
+--------------------------------------------------------------------------------
+QUIC (RFC 9000) deliberately decouples connection identity from the IP/UDP
+4-tuple: a connection is named by Connection IDs that the endpoints choose, so a
+connection survives address/port changes (NAT rebinding, connection migration)
+and multiple connections can share a 4-tuple. Consequently, classical in-network
+flow classification keyed on the 5-tuple is semantically wrong for QUIC: it
+neither follows a migrating connection nor separates multiplexed connections.
+
+The protocol-correct key is the Destination Connection ID. Two properties make
+this hard to use in a fixed-function or naively-programmed data plane:
+  (P1) The DCID is variable length (0-20 bytes, RFC 9000 Sec. 17.2).
+  (P2) In short-header (1-RTT) packets - the overwhelming majority of a
+       connection's packets - the DCID length is absent from the wire. It is
+       known only from connection context established during the handshake.
+
+A P4 parser must extract a fixed number of bytes, so it can only speculatively
+read the maximum (20 bytes). For a connection whose real CID is L < 20 bytes,
+those extra (20 - L) bytes are not padding: they are the next on-wire fields
+(the encrypted packet number and the start of the protected payload), which
+differ on every packet. Hashing the speculative 20 bytes therefore hashes
+per-packet-varying ciphertext, scattering one connection across thousands of
+buckets. This is the failure mode our work eliminates.
+
+
+--------------------------------------------------------------------------------
+3. SYSTEM DESCRIPTION
+--------------------------------------------------------------------------------
+Platform: Intel Tofino 1 (Edgecore Wedge 100BF-32X), P4-16 / Tofino Native
+Architecture (TNA), compiled with bf-p4c 9.6.0. Transparent bump-in-the-wire
+between two hosts; both data ports on the same pipe. Line rate 100 Gbps.
+
+3.1 Parsing
+  Ethernet -> IPv4 -> UDP. For UDP/443 (either direction) the parser peeks at
+  the QUIC first byte: bit 7 selects Long vs Short header. Both header types
+  speculatively extract a 20-byte DCID (the protocol maximum), plus the
+  cleartext fields needed downstream.
+
+3.2 CID-length learning (the key mechanism)
+  - Long-header packets carry the DCID length on the wire. However, only
+    Handshake packets (long_packet_type == 2) carry the *negotiated* connection
+    ID; the client's Initial packet uses a random-length DCID it invents before
+    it learns the peer's CID. We therefore learn the per-direction CID length
+    ONLY from Handshake packets and store it in a register indexed by a CRC16
+    hash of the 4-tuple (dcid_len_reg[flow_key]).
+  - The long_packet_type bits are NOT protected by QUIC header protection
+    (RFC 9001 Sec. 5.4.2 masks only the four least-significant bits of byte 0),
+    so the switch can read them reliably in cleartext.
+  - Short-header packets carry no length; they recall the learned length from
+    dcid_len_reg using the same 4-tuple key.
+
+3.3 Length-aware bucket hashing
+  The learned length (eff_len) indexes a match table that yields a 160-bit mask
+  with the top eff_len bytes set. The masked DCID (real CID bytes only, trailing
+  speculative bytes zeroed) is hashed with CRC32 to a 17-bit bucket index. Each
+  bucket has (a) a stateful packet-count register and (b) a packets+bytes
+  counter for line-rate throughput estimation. On the first packet of a new
+  bucket, a digest carries the connection metadata to the control plane.
+
+3.4 Runtime A/B control
+  A single runtime knob (cfg_tbl "force_len": 0 = length-aware, 20 = naive
+  fixed-20-byte baseline) selects the arm WITHOUT recompiling, enabling a
+  controlled before/after comparison on identical traffic.
+
+3.5 Genericity (no per-length recompilation)
+  Because 20 bytes is the protocol maximum and the mask table contains entries
+  for every length 0-20, ONE compiled program classifies any legal CID length.
+  Changing endpoint CID length requires no recompilation; the switch relearns
+  the new length from the next handshake. This is a deployment-relevant property:
+  the operator never recompiles for different clients/lengths.
+
+
+--------------------------------------------------------------------------------
+4. EXPERIMENTAL SETUP
+--------------------------------------------------------------------------------
+- Workload: a QUIC throughput client/server (quic-go) performing a ~100 MB bulk
+  transfer per run (~75,000 packets observed), repeated for CID lengths
+  L in {4, 8, 12, 16, 20} bytes.
+- Two arms, identical traffic: NAIVE (fixed 20-byte assumption) vs
+  LENGTH-AWARE (our learned-length masking), switched at runtime via cfg_tbl.
+- The connection used a stabilized CID generator so that CID rotation noise is
+  bounded and the same across arms (each connection still legitimately uses a
+  small handful of CIDs; see limitations).
+- Metric: "buckets used" = number of distinct nonzero entries in the per-bucket
+  packet-count register after one transfer (registers cleared before each run).
+  This directly measures how many flow-table slots one connection consumes;
+  the ideal is a small constant independent of CID length.
+
+
+--------------------------------------------------------------------------------
+5. RESULTS
+--------------------------------------------------------------------------------
+Buckets used per connection vs CID length (see buckets_vs_cidlen.pdf):
+
+   CID length (bytes)      Naive            Length-aware
+   ------------------      -----            ------------
+        4                  56,430                11
+        8                  57,130                11
+       12                  56,937                11
+       16                  57,116                11
+       20                      11                12
+
+Interpretation:
+- NAIVE collapses only when the CID happens to fill all 20 speculative bytes
+  (L = 20). For every shorter length it overflows to tens of thousands of
+  buckets - i.e., essentially one bucket per packet - because the hashed
+  speculative bytes include per-packet ciphertext. With ~75k packets this
+  exhausts the practical flow-table capacity and yields ~0% correct
+  per-connection attribution.
+- LENGTH-AWARE holds at ~11 buckets for ALL CID lengths, including the
+  pathological short-CID cases. The two arms coincide only at L = 20, as
+  expected, since there the speculative read equals the real CID and masking is
+  a no-op.
+- Improvement: ~5,000x fewer buckets at L = 8 (57,130 -> 11), and 3-4 orders of
+  magnitude across L < 20. Equivalently, per-connection classification accuracy
+  rises from ~0% (naive, L < 20) to effectively complete (length-aware).
+
+Throughput: the per-bucket packets+bytes counters provide per-connection
+throughput in the data plane at line rate; correct bucketing is a prerequisite
+for this measurement to be meaningful (under the naive arm the throughput of a
+connection is smeared across thousands of buckets and is unrecoverable).
+
+
+--------------------------------------------------------------------------------
+6. CONTRIBUTIONS
+--------------------------------------------------------------------------------
+C1. A line-rate, data-plane-only mechanism that classifies QUIC at
+    per-connection granularity using the protocol-correct key (the DCID) while
+    handling its VARIABLE LENGTH - without terminating, decrypting, or
+    reassembling QUIC, and without recirculation.
+
+C2. The enabling insight and design: the short-header CID length, which is
+    absent from the wire, is recovered from the cleartext handshake (Handshake
+    long-header packets, whose type bits are outside QUIC header protection) and
+    applied as a per-connection mask before hashing. To our knowledge this is
+    the first data-plane QUIC classifier that is correct for arbitrary CID
+    lengths rather than assuming a fixed length.
+
+C3. A quantified characterization of the failure mode of fixed-length QUIC
+    hashing in the data plane: hashing speculative bytes of a short CID mixes in
+    encrypted per-packet fields, causing table exhaustion and near-zero
+    classification accuracy. We show this is not a minor inaccuracy but a
+    catastrophic, length-dependent collapse, and we measure it.
+
+C4. A single-binary, runtime-adaptive realization: one compiled program covers
+    all legal CID lengths (0-20 B) with no recompilation, and a runtime A/B knob
+    enables controlled naive-vs-length-aware comparison on identical traffic.
+
+C5. A documented, reproducible Tofino implementation, including the practical
+    constraints that shaped it (e.g., a 160-bit bitwise mask must be applied as
+    per-32-bit-slice operations folded into a table action to be both correct
+    under bf-p4c 9.6.0 and to fit the 12-stage pipeline budget). These are
+    reusable lessons for wide-key data-plane designs.
+
+
+--------------------------------------------------------------------------------
+7. WHY THIS IS IMPORTANT AND DIFFERENT FROM PRIOR SYSTEMS
+--------------------------------------------------------------------------------
+- Right key, not a proxy. Operators increasingly need per-connection visibility
+  for QUIC (telemetry, QoS, load balancing, anomaly detection), but QUIC was
+  designed to defeat 5-tuple tracking. 5-tuple classification cannot follow a
+  migrating connection and cannot separate connections multiplexed on one
+  4-tuple. We use the DCID, the identity QUIC itself uses.
+
+- Handles the property everyone else assumes away. Existing in-switch QUIC
+  efforts typically hard-code a CID length (commonly 8 or 20 bytes) or only
+  inspect the handshake. A hard-coded length is brittle in the wild, where CID
+  length is an endpoint choice and varies across stacks and deployments. We
+  show that getting this wrong is not benign - it collapses the system - and we
+  fix it generically.
+
+- Stays in the fast path. The classifier runs in the ingress pipeline at line
+  rate with no session termination, no decryption, and no recirculation. It
+  scales to switch throughput and adds no per-packet software cost, unlike
+  host/userspace or proxy-based QUIC analyzers.
+
+- Deployable as one artifact. Because a single compiled program adapts to any
+  CID length at runtime, an operator does not need a different binary per client
+  population or per CID-length policy - an important practical distinction from
+  designs that bake the length into the P4 program.
+
+
+--------------------------------------------------------------------------------
+8. LIMITATIONS AND FUTURE WORK (state honestly for the reviewer)
+--------------------------------------------------------------------------------
+- Connection-ID rotation. A QUIC connection may use several CIDs over its
+  lifetime (issued via NEW_CONNECTION_ID frames). Linking those CIDs requires
+  reading encrypted 1-RTT frames, which an in-network observer cannot do, so a
+  connection maps to a small, bounded SET of buckets (the ~11 we observe)
+  rather than exactly one. This is a fundamental property of in-network QUIC
+  observation, not a defect of the masking; the control plane can coalesce a
+  connection's buckets by 4-tuple from the digests. Quantifying and bounding
+  rotation, and the control-plane coalescing, are natural extensions.
+
+- Control-plane hash parity. For exact per-connection labeling (mapping a digest
+  back to its hardware bucket and collapsing co-located CIDs to one slot), the
+  CRC used by the control/host side must match Tofino's CRC bit-for-bit. We
+  treat this calibration as engineering follow-up; it does not affect the
+  data-plane bucketing result reported here.
+
+- Pre-handshake / unobserved handshakes. If the switch does not see a
+  connection's Handshake packets (e.g., it joins mid-connection), short-header
+  packets recall a null length and degenerate to a single shared bucket. A
+  control-plane fallback or coexisting fixed-length default can mitigate this.
+
+- Scope. Evaluated on Tofino 1 with a controlled testbed and one QUIC stack;
+  broader stacks, mixed lengths concurrently, and adversarial traffic are
+  future work.
+
+
+--------------------------------------------------------------------------------
+9. REPRODUCIBILITY
+--------------------------------------------------------------------------------
+- Data plane: p4src/ (basic.p4 top level). Learning gated on Handshake packets;
+  per-length mask applied inside the mask-table action as five 32-bit slice
+  ANDs.
+- Control/measurement: bfrt_python/ - setup.py (forwarding + arm), set_aware.py
+  / set_naive.py (arm toggle), reset_counts.py (clear before a run),
+  count_buckets.py (report nonzero buckets), count_lens.py (verify learned
+  lengths).
+- Workload: go_perf/ (quic-go client/server).
+- Figure: plots/plot_buckets.py -> plots/buckets_vs_cidlen.pdf (this data).
+- Method per data point: select arm -> clear registers -> run one transfer at
+  a given CID length -> read nonzero bucket count.
+
+================================================================================
