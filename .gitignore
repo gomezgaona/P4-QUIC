@@ -1,0 +1,43 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+
+# --- Go build output (rebuild from go_perf/ with `make`) ---
+/quic_perf_go_client
+/quic_perf_go_server
+
+# --- Tofino SDE runtime artifacts ---
+bf_drivers.log*
+bf_rt
+zlog-cfg-cur
+
+# --- TLS test material (regenerate with openssl; see README) ---
+*.pem
+
+# --- Generated figures (regenerate with plots/*.py) ---
+plots/*.pdf
+
+# --- Bulk experiment outputs ---------------------------------------------
+# Keep only the small aggregated result CSVs that the plot scripts read;
+# ignore the per-run register dumps, summaries and client logs.
+*_flows/*
+!*_flows/sweep_results.csv
+*_overload/*
+!*_overload/overload_results.csv
+bytes_sweep/*
+!bytes_sweep/bytes_results.csv
+bytes_manyflows/
+
+# Loose top-level run outputs. byte_diff.csv and switch_bytes.csv are figure
+# sources for plots/plot_bytes.py and stay tracked; the rest are regenerable.
+/pcap_buckets.csv
+/switch_buckets.csv
+/switch_bytes_1gb.csv
+/switch_bytes_10gb.csv
+/sender.csv
+/client.log
+/pcap_summary.txt
+/cidlen_summary.csv
+
+# --- Editor / agent ---
+.claude/
