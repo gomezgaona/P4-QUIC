@@ -16,17 +16,19 @@ connection direction (≈11), restoring accurate per-connection accounting.
 
 ## Testbed Topology
 
-[![Logical topology used for the experiments: PC1 (client) and PC2 (server) either side of the Tofino switch](figures/not-in-paper/topo.png)](figures/not-in-paper/topo.pdf)
+[![Topology used for the experiments: up to 32 QUIC client namespaces behind an OvS switch, the Tofino P4 data plane (PDP), and the QUIC server](figures/not-in-paper/topo.png)](figures/not-in-paper/topo.pdf)
 
-The diagram above is the logical topology used for the experiments (data and
-management networks). It is embedded as a PNG for inline rendering; click it, or
-open [`figures/not-in-paper/topo.pdf`](figures/not-in-paper/topo.pdf), for the
-vector version. It was removed from the paper for space (see [Figures](#figures)).
+The experiments drive load from up to 32 QUIC client namespaces (h1–h32) on PC1,
+bridged by an OvS software switch onto the link into the Tofino P4 data plane
+(PDP), which forwards transparently to the QUIC server on PC2. The figure is
+embedded as a PNG for inline rendering; open
+[`figures/not-in-paper/topo.pdf`](figures/not-in-paper/topo.pdf) for the vector
+version. It was removed from the paper for space (see [Figures](#figures)).
 
-QUIC runs over UDP destination port 443 in both directions. PC1 attaches to
-front-panel port 2 (dev port 136) and PC2 to front-panel port 1 (dev port 128),
-both on pipe 1. The switch forwards 136↔128 transparently and, for UDP/443
-packets, performs the QUIC-aware classification described above.
+QUIC runs over UDP destination port 443 in both directions. On the switch, PC1
+attaches to front-panel port 2 (dev port 136) and PC2 to front-panel port 1 (dev
+port 128), both on pipe 1; the switch forwards 136↔128 transparently and, for
+UDP/443 packets, performs the QUIC-aware classification described above.
 
 ---
 

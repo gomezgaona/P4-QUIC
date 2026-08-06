@@ -27,6 +27,6 @@ Letter limit. The measurements are valid.
 |------|-------------|
 | `buckets_vs_cidlen.pdf` | Buckets consumed vs DCID length, comparing the fixed-20-byte (naïve) parser against the length-aware design (Experiment 1). Cut because a fixed-width parser reads a different key on every packet, so it is not a meaningful baseline for the Letter, though the measurement itself is valid. |
 | `buckets_vs_cidlen.png` | PNG copy of `buckets_vs_cidlen.pdf` for the README embed. |
-| `topo.pdf` | Logical topology used for the experiments: PC1 (QUIC client) and PC2 (QUIC server) either side of the Tofino switch, with the data and management networks (vector source). |
-| `topo.png` | Same topology as above, raster PNG. Used for the inline embed in the top-level `README.md`, linking to `topo.pdf`. |
+| `topo.pdf` | Topology used for the experiments: up to 32 QUIC client namespaces (h1–h32) bridged by an OvS switch to the Tofino P4 data plane (PDP) and the QUIC server (vector source). |
+| `topo.png` | Raster render of `topo.pdf`, used for the inline embed in the top-level `README.md` (which links through to the PDF). |
 | `cidlen_buckets.pdf` | Buckets occupied vs number of distinct CIDs, with the `M(1 - e^{-n/M})` occupancy curve, overlaid for CID lengths 4..20. Supplementary analysis plot; not one of the paper figures. |
