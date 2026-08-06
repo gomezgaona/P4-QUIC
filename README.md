@@ -204,7 +204,15 @@ cd plots && python3 plot_<name>.py
 ### Experiment 1 — Length-aware classification
 
 The headline comparison of buckets consumed by the naive vs length-aware arm
-across CID lengths.
+across CID lengths. The monitor holds each connection to about 11 buckets for
+4–16 byte CIDs (12 for 20-byte), independent of the ~75,000 packets carried,
+while the naive 20-byte parser scatters one short-CID connection across ~57,000
+buckets.
+
+![Buckets consumed vs CID length: naïve fixed-20-byte parser (~57k) vs length-aware (~11)](figures/not-in-paper/buckets_vs_cidlen.png)
+
+> This comparison figure was cut from the paper for space (see
+> [Figures](#figures)); the measurement is valid.
 
 ```bash
 # Driver (needs hardware): sweeps CID lengths 4,8,12,16,20, each into cid<NN>_overload/
@@ -219,7 +227,11 @@ Figures:
 ### Experiment 2 — Accuracy under load
 
 How classification accuracy holds up as the connection count approaches and
-exceeds the 131,072-bucket register.
+exceeds the 131,072-bucket register. Accuracy is governed by n/M rather than CID
+length: above 96% near 10^4 distinct CIDs and above 80% near 5×10^4, degrading
+as the table saturates past n = M.
+
+![Accuracy vs number of distinct CIDs for 4–20 byte CIDs (M = 131,072 buckets)](figures/cidlen_accuracy.png)
 
 ```bash
 # Drivers (need hardware):
@@ -237,7 +249,12 @@ Figures:
 ### Experiment 3 — Per-connection volume accounting
 
 The hardware byte counter (`quic_flow_bytes`) vs the application's ground-truth
-byte count, per connection.
+byte count, per connection, for 500 concurrent transfers spanning 1 MB to 10 GB.
+Switch counts track the ideal line across four decades, running modestly above
+the application bytes because the counter includes Ethernet, IP, UDP, QUIC and
+control overhead.
+
+![Switch byte counter vs application bytes, 500 concurrent transfers from 1 MB to 10 GB](figures/bytes_scatter.png)
 
 ```bash
 # Drivers (need hardware):
@@ -254,6 +271,18 @@ Figures:
 
 ## How It Works (data plane)
 
+QUIC exposes its Long and Short header forms in cleartext. The parser reads the
+first byte to tell them apart and, for Long (handshake) headers, the on-wire
+DCID length prefix:
+
+![QUIC Long (a) and Short (b) header formats; the DCID and its length prefix sit near the start of the header](figures/long-short-headers-full.png)
+
+The block diagram below maps the design onto the Tofino data-plane structures,
+annotated with the compiled stage of each object (matching
+[`logs/mau.resources.log`](logs/mau.resources.log)):
+
+![Data-plane pipeline: parser vs ingress, with per-stage placement of each object](figures/pipeline.png)
+
 1. The parser walks Ethernet → IPv4 → UDP. For UDP/443 it peeks at the first
    byte: bit 7 = 1 selects the QUIC Long header (DCID length is on the wire);
    bit 7 = 0 selects the Short header. Either way it speculatively reads 20 DCID
@@ -269,6 +298,26 @@ Figures:
    increments for server→client packets. The first packet of a new bucket emits
    a digest to the control plane.
 
+### Length-recovery algorithm
+
+The learned length selects a 160-bit mask that keeps the true DCID bytes and
+zeroes the speculative tail before CRC32 hashing (Algorithm 1 in the paper):
+
+```text
+Require: speculative 20-byte DCID D; flow key k; length register R;
+         mask table M, where M[L] keeps the first L bytes
+Ensure:  flow bucket b
+ 1: if p is a long-header packet then
+ 2:     L <- on-wire DCID length
+ 3:     if p is a Handshake packet then
+ 4:         R[k] <- L
+ 5:     end if
+ 6: else if p is a short-header packet then
+ 7:     L <- R[k]              # 0 if not yet learned
+ 8: end if
+ 9: b <- CRC32(D & M[L]) mod 2^17
+```
+
 ### Compiled resource report
 
 The paper's resource table and the per-stage figures in the pipeline diagram are
@@ -277,6 +326,21 @@ taken from the bf-p4c 9.6.0 compile log, committed at
 MAU usage across the 12 stages (totals: 74 SRAM, 71 Map RAM, 101 hash bits,
 0 TCAM), so a reader can verify the reported SRAM, Map RAM, hash-bit, TCAM and
 per-stage numbers without recompiling.
+
+Table I from the paper (compiled resource use on Tofino 1):
+
+| Resource | Total | Peak stage use |
+|----------|-------|----------------|
+| Ingress MAU stages | 12 | – |
+| SRAM blocks | 74 | 41.25% |
+| Map RAM units | 71 | 68.75% |
+| TCAM blocks | 0 | 0% |
+| Hash bits / dist. units | 101 / 6 | 4.09% / 33.33% |
+| Meter / stats ALUs | 2 / 1 | 25% / 25% |
+
+The dominant cost is per-bucket state in stages 10 and 11 (the packet-count
+register and byte counter); length learning itself uses five RAM and five Map
+RAM units in stage 6.
 
 ### Known bf-p4c 9.6.0 constraints (relevant for reproducibility)
 
@@ -295,10 +359,11 @@ per-stage numbers without recompiling.
 Paper figures live in [`figures/`](figures/). Figures cut from the manuscript
 only for the four-page Letter limit live in
 [`figures/not-in-paper/`](figures/not-in-paper/); their measurements are valid.
-The data-plane pipeline diagram is drawn inline in the manuscript LaTeX and is
-not exported as a standalone file. See [`figures/README.md`](figures/README.md)
-for a per-file description. Regenerate the plots from the committed CSVs with
-`plots/*.py`.
+Result plots are committed as vector PDFs with PNG copies for inline display in
+this README. The data-plane pipeline diagram (`pipeline.png`) is a raster export
+of the figure drawn inline in the manuscript LaTeX. See
+[`figures/README.md`](figures/README.md) for a per-file description. Regenerate
+the plots from the committed CSVs with `plots/*.py`.
 
 ## License
 

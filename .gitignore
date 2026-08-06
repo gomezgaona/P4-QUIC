@@ -39,5 +39,9 @@ bytes_manyflows/
 /pcap_summary.txt
 /cidlen_summary.csv
 
+# --- Manuscript (do NOT publish the paper PDF or local figure backups) ---
+bare_jrnl*.pdf
+/figures.zip
+
 # --- Editor / agent ---
 .claude/
