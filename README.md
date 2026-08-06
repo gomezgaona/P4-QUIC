@@ -23,20 +23,10 @@ management networks). It is embedded as a PNG for inline rendering; click it, or
 open [`figures/not-in-paper/topo.pdf`](figures/not-in-paper/topo.pdf), for the
 vector version. It was removed from the paper for space (see [Figures](#figures)).
 
-```
-PC1 (192.168.0.1)                                  PC2 (192.168.0.2)
-QUIC client                                        QUIC server
-       |                                                  |
-  front-panel 2                                    front-panel 1
-  dev port 136                                     dev port 128
-       |                                                  |
-       └──────────────  Tofino 1 switch  ─────────────────┘
-                         (both ports on pipe 1)
-```
-
-QUIC runs over UDP destination port 443 in both directions. The switch forwards
-136↔128 transparently and, for UDP/443 packets, performs the QUIC-aware
-classification described above.
+QUIC runs over UDP destination port 443 in both directions. PC1 attaches to
+front-panel port 2 (dev port 136) and PC2 to front-panel port 1 (dev port 128),
+both on pipe 1. The switch forwards 136↔128 transparently and, for UDP/443
+packets, performs the QUIC-aware classification described above.
 
 ---
 
