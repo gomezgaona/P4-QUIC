@@ -16,6 +16,12 @@ connection direction (≈11), restoring accurate per-connection accounting.
 
 ## Testbed Topology
 
+![Testbed topology: PC1 (client) and PC2 (server) either side of the Tofino switch](figures/not-in-paper/topo.png)
+
+The topology figure above is also available as
+[`figures/not-in-paper/topo.pdf`](figures/not-in-paper/topo.pdf). It was removed
+from the paper for space (see [Figures](#figures)).
+
 ```
 PC1 (192.168.0.1)                                  PC2 (192.168.0.2)
 QUIC client                                        QUIC server
@@ -39,8 +45,8 @@ classification described above.
 |------|-------------|
 | `p4src/` | P4_16 / TNA data plane (parser, ingress classification, deparser, egress, checksum) |
 | `bfrt_python/` | BF-RT control-plane scripts (forwarding setup, A/B arm toggle, counter reset, register/counter dumps, live monitors) |
-| `go_perf/` | Go (`quic-go`) QUIC throughput client/server source — build with `make` |
-| `quic_perf_client.py`, `quic_perf_server.py` | Python (`aioquic`) QUIC throughput client/server |
+| `quic_perf_client.py`, `quic_perf_server.py` | Python (`aioquic`) QUIC throughput client/server. **Tooling used to generate the workload for the paper's results.** |
+| `go_perf/` | Go (`quic-go`) QUIC throughput client/server source, built with `make`. Alternative harness; not used for the reported measurements. |
 | `plots/` | Matplotlib figure generators (`plot_*.py`) for the paper |
 | `analyze_pcap.py`, `pcap_buckets.py`, `endpoint_buckets.py`, `analyze_bytes.py` | Offline analysis: derive ground-truth buckets/bytes from a capture and diff them against the switch |
 | `topo_pc1.py` | Builds 32 sender network namespaces on PC1 to push the flow count toward 2^20 |
@@ -52,6 +58,8 @@ classification described above.
 | `deploy.sh` | `scp` source + control plane + perf tools to the switch and to PC2 |
 | `config_env.sh` | Sources the Tofino SDE environment (`$SDE`, etc.) |
 | `*_flows/`, `*_overload/`, `bytes_sweep/` | Aggregated result CSVs that drive the figures (per-run dumps are not committed) |
+| `figures/` | Paper figures, plus `figures/not-in-paper/` for figures cut for space (see [figures/README.md](figures/README.md)) |
+| `logs/` | `mau.resources.log`: bf-p4c 9.6.0 compile resource report behind the paper's resource table and pipeline diagram |
 
 ---
 
@@ -61,8 +69,10 @@ classification described above.
 - Intel `bf-sde-9.6.0` with the `bf-p4c` 9.6.0 compiler (P4_16 / TNA).
 
 **Client / server hosts (PC1, PC2):**
-- Python 3 with `aioquic` (`pip install aioquic`) for the Python perf tools.
-- Go 1.21+ to build the Go perf tools (`go_perf/`).
+- Python 3 with `aioquic` (`pip install aioquic`) for the aioquic perf tools.
+  These generated the workload for the paper's results.
+- Go 1.21+ to build the Go perf tools (`go_perf/`), an alternative harness not
+  used for the reported measurements.
 - `tcpdump` for the capture-based accuracy experiments.
 - `python3` with `matplotlib` and `numpy` to regenerate figures.
 - `sudo` access for `tcpdump` and for the network namespaces used by the
@@ -87,14 +97,20 @@ source config_env.sh          # sets $SDE and SDE env vars
 ~/tools/p4_build.sh --with-p4c=bf-p4c p4src/basic.p4
 ```
 
-### Go perf tools (on PC1 / PC2)
+### Perf tools (on PC1 / PC2)
+
+The aioquic tools (`quic_perf_client.py`, `quic_perf_server.py`) generated the
+paper's workload and need no build; run them with `python3` (see Prerequisites
+for `aioquic`).
+
+The Go tools are an alternative harness. Build them with:
 
 ```bash
 cd go_perf
 make            # produces ../quic_perf_go_client and ../quic_perf_go_server
 ```
 
-Both binaries default to 20-byte connection IDs to match the P4 parser, which
+Both Go binaries default to 20-byte connection IDs to match the P4 parser, which
 speculatively reads 20 DCID bytes for every QUIC packet.
 
 ---
@@ -135,19 +151,34 @@ buckets. Switching arms takes effect on the next packet with no recompile.
 
 ### Generate QUIC traffic
 
+The aioquic tools below generated the paper's workload. The `--cid-length` flag
+sets aioquic's `connection_id_length`, which is how the DCID length was varied.
+
 ```bash
 # On PC2 (server):
-./quic_perf_go_server -p 443 -cid-length 20            # Go
-python3 quic_perf_server.py --port 443 --cid-length 20 # or Python/aioquic
+python3 quic_perf_server.py --port 443 --cid-length 20
 
 # On PC1 (client):
-./quic_perf_go_client -P 100 -n 10000000 -cid-length 20 192.168.0.2   # Go: 100 flows, 10 MB each
-python3 quic_perf_client.py 192.168.0.2 -P 100 -n 10000000 --cid-length 20
+python3 quic_perf_client.py 192.168.0.2 -P 100 -n 10000000 --cid-length 20   # 100 flows, 10 MB each
 ```
 
-Useful Go client flags: `-P` parallel flows, `-n` bytes/flow (or `-nmin`/`-nmax`
-for log-uniform skewed sizes), `-cid-length`, `-single-cid` (pin all CIDs to one
-bucket), `-download` (server→client bulk), `-t` duration, `-i` interval.
+aioquic client flags: `-P` parallel flows, `-n` bytes/flow, `--cid-length`,
+`-t` duration, `-i` reporting interval.
+
+The Go tools are an equivalent alternative harness (not used for the reported
+measurements) and take single-dash flags:
+
+```bash
+# On PC2 (server):
+./quic_perf_go_server -p 443 -cid-length 20
+
+# On PC1 (client):
+./quic_perf_go_client -P 100 -n 10000000 -cid-length 20 192.168.0.2   # 100 flows, 10 MB each
+```
+
+Additional Go client flags: `-nmin`/`-nmax` (log-uniform skewed sizes),
+`-single-cid` (pin all CIDs to one bucket), `-download` (server→client bulk),
+`-t` duration, `-i` interval.
 
 ---
 
@@ -162,6 +193,12 @@ without switch hardware**:
 pip install matplotlib numpy
 cd plots && python3 plot_<name>.py
 ```
+
+> **Note on tooling.** The `run_*.sh` drivers below wrap the Go perf tools, the
+> alternative harness. The workload for the paper's reported results was
+> generated with the aioquic tools (see
+> [Generate QUIC traffic](#generate-quic-traffic)). Experiment 3 in particular
+> relies on Go-only client flags (`-single-cid`, `-download`).
 
 ### Experiment 1 — Length-aware classification
 
@@ -231,6 +268,15 @@ Figures:
    increments for server→client packets. The first packet of a new bucket emits
    a digest to the control plane.
 
+### Compiled resource report
+
+The paper's resource table and the per-stage figures in the pipeline diagram are
+taken from the bf-p4c 9.6.0 compile log, committed at
+[`logs/mau.resources.log`](logs/mau.resources.log). It lists per-stage and total
+MAU usage across the 12 stages (totals: 74 SRAM, 71 Map RAM, 101 hash bits,
+0 TCAM), so a reader can verify the reported SRAM, Map RAM, hash-bit, TCAM and
+per-stage numbers without recompiling.
+
 ### Known bf-p4c 9.6.0 constraints (relevant for reproducibility)
 
 | Issue | Workaround in this code |
@@ -242,6 +288,16 @@ Figures:
 | Register/counter data is a per-pipe list | Sum across pipes: `sum(raw)` |
 
 ---
+
+## Figures
+
+Paper figures live in [`figures/`](figures/). Figures cut from the manuscript
+only for the four-page Letter limit live in
+[`figures/not-in-paper/`](figures/not-in-paper/); their measurements are valid.
+The data-plane pipeline diagram is drawn inline in the manuscript LaTeX and is
+not exported as a standalone file. See [`figures/README.md`](figures/README.md)
+for a per-file description. Regenerate the plots from the committed CSVs with
+`plots/*.py`.
 
 ## License
 
