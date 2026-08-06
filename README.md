@@ -16,11 +16,12 @@ connection direction (≈11), restoring accurate per-connection accounting.
 
 ## Testbed Topology
 
-![Testbed topology: PC1 (client) and PC2 (server) either side of the Tofino switch](figures/not-in-paper/topo.png)
+[![Logical topology used for the experiments: PC1 (client) and PC2 (server) either side of the Tofino switch](figures/not-in-paper/topo.png)](figures/not-in-paper/topo.pdf)
 
-The topology figure above is also available as
-[`figures/not-in-paper/topo.pdf`](figures/not-in-paper/topo.pdf). It was removed
-from the paper for space (see [Figures](#figures)).
+The diagram above is the logical topology used for the experiments (data and
+management networks). It is embedded as a PNG for inline rendering; click it, or
+open [`figures/not-in-paper/topo.pdf`](figures/not-in-paper/topo.pdf), for the
+vector version. It was removed from the paper for space (see [Figures](#figures)).
 
 ```
 PC1 (192.168.0.1)                                  PC2 (192.168.0.2)
